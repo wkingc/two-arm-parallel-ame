@@ -1,0 +1,609 @@
+---
+title: "Average Marginal Effects in a 2-Arm Parallel Randomized Controlled Trial with Heterogeneity of Effects by Strata"
+author: Wade K. Copeland
+# date: "`r format(Sys.time(), '%d %B, %Y')`"
+date: "02 August, 2019"
+header-includes:
+  - \usepackage{graphicx}
+  - \usepackage{booktabs}
+  - \usepackage{mathrsfs}
+  - \usepackage{pdflscape}
+  - \newcommand{\blandscape}{\begin{landscape}}
+  - \newcommand{\elandscape}{\end{landscape}}
+  - \usepackage{caption}
+  - \captionsetup{width=7in}
+  - \usepackage{color, soul, amsmath}
+  - \usepackage{pdfpages}
+  - \usepackage{xcolor}
+  - \usepackage{longtable}
+  - \usepackage{tikz}
+  - \usetikzlibrary{calc, shapes, positioning}
+  - \tikzset{mynode/.style={draw,text width=1in,align=center}}
+  - \usepackage{amsthm}
+  - \usepackage[utf8]{inputenc}
+  - \usepackage[english]{babel}
+output: 
+  beamer_presentation:
+    theme: "Madrid"
+    slide_level: 2
+    toc: TRUE
+---
+
+# Introduction
+
+## Motivation
+
+The general(ized) linear model is very flexible. However, the reliance on effect estimation that requires fixed covariate values can, in some cases, be a severe limitation.  This has led statisticians to develop methods related to estimating so-called \textbf{average marginal effects}, so named because the method of estimation averages over the marginal effects in a linear model to get a marginal effect that no longer depends on fixed covariate values \cite{wooldridge2000econometric, greene2003econometric}.  For the remainder of this presentation we will refer to the \textbf{average marginal effect} using the acronym \textbf{AME}.
+
+## Motivation
+
+The theory behind estimating the AME and calculating the standard error of the estimate is complex.  This leads to two general problems in the literature discussing them.  The first case abstracts the issue to the point that the average user is unable to decipher what to do in a real application \cite{stata2019manual}.  The second case avoids all of the theory and only speaks in general terms, quickly switching to black-box solutions, such as the \textit{margins} command in STATA \cite{williams2012using}.
+
+## Motivation
+
+The utility of the AME in the context of regression modeling makes the lack of accessible resources in the literature it a tragedy for both statisticians and those who consume statistics.
+
+In this presentation, I attempt to solve this problem by deriving the estimate of the AME, and its standard error in the context of a common experimental design; namely, a multisite 2-arm parallel randomized controlled trial (RCT).  We follow each section with straight forward programming techniques to apply this method to real data.
+
+# Study Design
+
+## 2-Arm Parallel Randomized Control Trial
+
+A 2-arm parallel randomized controlled trial (RCT) is a study design where subjects are assigned randomly to either treatment or control groups (collectively called \textit{condition}).  An intervention is applied to the treatment group, and a placebo or standard of care is applied to the control group.  At the follow-up, the results between the two groups are compared \cite{parab2010study}.
+
+## 2-Arm Parallel Randomized Control Trial
+
+\begin{figure}[h!]
+\begin{center}
+\begin{tikzpicture}
+    \node[mynode, circle] (p){Population};
+    \node[mynode, rectangle, above right=of p](control) {Control};
+    \node[mynode, rectangle, below right=of p](treatment) {Treatment};
+    \node[mynode, rectangle, right=of control](followup1) {Follow-up};
+    \node[mynode, rectangle, right=of treatment](followup2) {Follow-up};
+	\node[mynode, rectangle] (compare) at ($(followup1)!0.5!(followup2)$) {Compare Results};
+    \draw[->] (p) -- node[auto,font=\footnotesize] {Random Assignment} (control);
+    \draw[->] (p) -- node[auto,font=\footnotesize] {Random Assignment} (treatment);
+    \draw[->] (control) -- node[auto,font=\footnotesize] {} (followup1);
+    \draw[->] (treatment) -- node[auto,font=\footnotesize] {} (followup2);
+    \draw[->] (followup1) -- node[auto,font=\footnotesize] {} (compare);
+    \draw[->] (followup2) -- node[auto,font=\footnotesize] {} (compare);
+\end{tikzpicture}
+\end{center}
+\caption{2-Arm Parallel Randomized Controlled Trial Study Design}
+\label{fig:rct}
+\end{figure}
+
+## Randomization and Causal Effect Estimation
+
+Much of the virtue attributed to the RCT class of experimental designs comes from the process of randomizing participants into either treatment or control groups. 
+
+Under ideal circumstances, the randomization allows us to estimate causal effects because unmeasured confounders are balanced across the conditions.  This is equivalent to saying that we could have switched subjects from either condition at the start of the study and still ended up with the same results (a property called \textit{exchangeability}\textsuperscript{1}) \cite{hernan2006estimating}.
+
+\footnotetext[1]{Formally, exchangeability says that the counterfactual outcomes, one outcome observed (the factual outcome) and one that is unobserved (the outcome that would have been observed in a situation that didn't actually happen), are independent of condition.}
+
+## Multsite RCTs
+
+A multisite RCT is similar only the same experiment is run over multiple sites with each observation within site being randomized (as opposed to randomizing the site such as in a group randomized trial).  There are many reasons we would want to do this.  Sometimes a single-site RCT is turned into a multisite RCT due to problems at a single location such as low recruitment.  A multisite RCT also helps move a trial from only assessing efficacy to assessing the effectiveness by sampling from different populations with different baseline risk factors \cite{kraemer2000pitfalls}.
+
+## Marginal Treatment Effect
+
+Statistically, we can account for multiple sites by adjusting for the condition by site effect.  The most straight forward way to model the expectation at the follow-up is as a linear function of condition, site, and site by condition.
+
+## Marginal Treatment Effect
+
+Consider the following data generating process.  Let $y_i = \beta_{0} + \beta_{1}c_i + \beta_{2}s_i + \beta_{3}c_is_i + \epsilon_i$ for $i \in \{1, ... . n \}$ such that $y_i \sim N(\beta_{0} + \beta_{1}c_i + \beta_{2}s_i + \beta_{3}c_is_i, \sigma^2_{\epsilon})$.
+
+Let $c_{i} = 0$ for an observation in the control condition and $c_{i} = 1$ for an observation in the treatment condition.  Let $s_{i} = 0$ for an observation in the first site and $s_{i} = 1$ for an observation in the second site.
+
+The conditional expectation of $y_i$ for a fixed value of $c_i$ and $s_i$ is as follows:
+
+\begin{equation}
+\begin{split} \nonumber
+E[y_i| c_i, s_i] = \beta_{0} + \beta_{1}c_i + \beta_{2}s_i + \beta_{3}c_is_i
+\end{split}
+\end{equation}
+
+\footnotetext[1]{To keep things simple, I assume the conditional distribution of the response is normal.  In general, this isn't necessary.}
+
+## Marginal Treatment Effect
+
+To continue we need to calculate the expected marginal treatment effect for the $i^{th}$ observation.
+
+The effect of the treatment condition is $E[y_i|c_i = 1, s_i] = \beta_{0} + \beta_{1}1 + \beta_{2}s_i + \beta_{3}1s_i = \beta_{0} + \beta_1 + \beta_{2}s_i + \beta_{3}s_i$
+
+The effect of the control condition is $E[y_i|c_i = 0, s_i] = \beta_{0} + \beta_{1}0 + \beta_{2}s_i + \beta_{3}0s_i = \beta_{0} + \beta_{2}s_i$
+
+Therefore the expected marginal treatment effects\textsuperscript{2} are the first discrete difference, $E[y_i|c_i = 1, s_i] - E[y_i|c_i = 0, s_i] = \beta_{0} + \beta_1 + \beta_{2}s_i + \beta_{3}s_i - (\beta_{0} + \beta_{2}s_i) = \beta_1 + \beta_{3}s_i$
+
+\footnotetext[2]{An important subtlety here is that the marginal treatment effect is calculated for each observation.  Let $E[y_{i_{c_i = 0}}|s_{i}]$ be the counterfactual outcome for each observation under the control condition and let $E[y_{i_{c_i = 1}}|s_{i}]$ be the counterfactual outcome for each observation under the treatment condition.  Under exchangeability, we can show that $E[y_{i_{c_i}}|s_{i}] = E[y_i|c_i, s_{i}]$ for all $c_i \in \{0, 1\}$\cite{hernan2004definition}.}
+
+# Average Marginal Treatment Effect Estimation
+
+## Average Marginal Treatment Effect Estimation
+
+The expected marginal treatment effect for the $i^{th}$ observation, call it $E[y_{d_i} | s_i]$, still depends on value $s_i$.  While the expected treatment effects by site may be of interest, generally we are interested in an effect that is unconditional on site.  The basic mechanics of the general(ized) linear model does not allow for this since we can only calculate the marginal expectation for fixed values of site.
+
+## Average Marginal Treatment Effect Estimation
+
+A naive approach to the problem would be to test if the interaction of site by condition is significant and then remove it if it isn't.  However, this approach falls into the classic trap of saying that failure to reject the null hypothesis is the same as saying there is no effect.
+
+Another potential solution would be to use generalized estimating equations and cluster by site to get the population-averaged treatment effect.  However, for those hoping to extend these methods to additional applications\textsuperscript{3}, they will find this solution doesn't provide the flexibility in estimation they will want.
+
+\footnotetext[3]{An example is using the AME to estimate the risk ratio or risk difference for the treatment effect in a logistic regression model.  Generalized estimating equations on their own can only estimate the odds ratio for the population-averaged effect.  Another example is if we were to use longitudinal models.  In this case, we would want to average over the subject-specific effect to account for the correlation and keep site fixed in the expectation, which we can later average over by estimating the AME.}
+
+## Average Marginal Treatment Effect Estimation
+
+We can solve this problem in a principled way that will provide for the flexibility we will want later.  The first step is to apply the Law of Total Expectation to the $i^{th}$ observation of the marginal treatment effect\textsuperscript{4} \cite{bain2000introduction}.
+
+\begin{equation}
+\begin{split} \nonumber
+E_{s_i}[E[y_{d_i}|s_i]] = E[y_{d_i}]
+\end{split}
+\end{equation}
+
+\footnotetext[4]{Note that we have made the not-so-subtle transition from treating $s_i$ as fixed in the expecatation to $s_i$ as a random variable.  Previously we could have treated $s_i$ as random variable and arrived at this same point.}
+
+## Average Marginal Treatment Effect Estimation
+
+Since $s_i$ partitions the sample space (e.g., $Pr(s_i=0) + Pr(s_i=1) = 1$), we can further simplify.
+
+\begin{equation}
+\begin{split} \nonumber
+E[y_{d_{i}}] = \sum_{j=1}^{2}E[y_{d_i}|s_{ij}]Pr(s_{ij}) = \\ 
+E[y_{d_i}|s_i = 0]Pr(s_i = 0) + E[y_{d_i}|s_i = 1]Pr(s_i = 1) = \\
+\beta_{1}Pr(s_i = 0) + (\beta_1 + \beta_3)Pr(s_i = 1) = \\
+\beta_1(Pr(s_i = 0) + Pr(s_i = 1)) + \beta_3Pr(s_i = 1) = \\
+\beta_{1} + \beta_3Pr(s_i = 1)
+\end{split}
+\end{equation}
+
+## Average Marginal Treatment Effect Estimation
+
+Calculating the unconditional effect for the $i^{th}$ observation is just the conditional marginal treatment effect evaluated at the $Pr(s_i = 1)$ which is the population $AME$.
+
+Let $y_1, y_2, ... y_n$ be a sequence of $n$ random variables with sample average $\frac{1}{n}\sum_{i=1}^{n}y_{d_{i}}$.  We can see that this is the same as the unconditional marginal treatment effect, and where this estimator gets its name from.
+
+\begin{equation}
+\begin{split} \nonumber
+\frac{1}{n}\sum_{i=1}^{n}y_{d_{i}} =
+\frac{1}{n}\sum_{i=1}^{n} (\beta_1 + \beta_{3}s_i) = \\
+\frac{1}{n}(n\beta_1 + \beta_3\sum_{i=1}^n s_i) =
+\beta_1 + \beta_3 \frac{\sum_{i=1}^n s_i}{n} = \\
+\beta_1 + \beta_3Pr(s_i = 1)
+\end{split}
+\end{equation}
+
+## Average Marginal Treatment Effect Estimation
+
+This suggests that we can estimate the marginal treatment effect that isn't conditional on site by replacing the population parameters with their consistent estimators.  We will call this derived effect $\widehat{AME}$.
+
+\begin{equation}
+\begin{split} \nonumber
+\widehat{AME} = \hat{\beta}_1 + \hat{\beta}_3\bar{s}= \frac{1}{n}\sum_{i=1}^{n}\hat{y}_{d_{i}}
+\end{split}
+\end{equation}
+
+## Average Marginal Treatment Effect Estimation -- Example
+
+As an example, consider the data generating process with the following values:  Let $\beta_{0} = 5$, $\beta_1 = 5$, $\beta_2 = 2$, $\beta_3 = 4$ and $\sigma_{\epsilon} = 1$. Let the probability of an observation being in the treatment condition be $1/2$, and the probability of an observation being in site 1 be $2/3$.
+
+With these values, the population-level effects are easily derived.
+
+1. The population marginal treatment effect in site 1 is $\beta_1 + \beta_30 = \beta_1 = 5$.  
+2. The population marginal treatment effect in site 2 is $\beta_1 + \beta_3 = 5 + 4 = 9$.  
+3. The population AME is $\beta_1 + \beta_3Pr(s_i = 1) = 5 + 4(1-2/3) = `r round(5 + 4*(1/3), 2)`$.
+
+## Average Marginal Treatment Effect Estimation -- Example
+
+To see how close $\widehat{AME}$ is to the population AME we can simulate some data.
+
+```{r normalSimulation, eval = TRUE, echo = TRUE, results = TRUE, warning = FALSE, message = FALSE}
+set.seed(123)
+
+beta0 = 5; beta1 = 5; beta2 = 2; beta3 = 4
+C = rbinom(500, 1, prob = 1/2)
+S = rbinom(500, 1, prob = 1/3)
+mu = beta0 + beta1*C + beta2*S + beta3*C*S
+Y = rnorm(n = 500, mean = mu, sd = 1)
+d <- as.data.frame(cbind(Y, C, S))
+d[1:3, ]
+```
+
+## Average Marginal Treatment Effect Estimation -- Example
+
+The coefficients show that the estimation is reasonably close to the truth.
+
+```{r normalEstimates, eval = TRUE, echo = TRUE, results = TRUE, warning = FALSE, message = FALSE}
+fit <- lm(Y ~ C + S + C*S, data = d)
+coef(fit)
+```
+
+The estimated marginal treatment effect at site 1 is  $\hat{\beta}_1 + \hat{\beta}_30 = `r round(coef(fit)[1], 2)`$.  The estimated marginal treatment effect at site 2 is $\hat{\beta}_1 + \hat{\beta}_3 = `r round(coef(fit)[1], 2)` +  `r round(coef(fit)[4], 2)` = `r round(coef(fit)[1] + coef(fit)[4], 2)`$.  Finally, $\widehat{AME} = \hat{\beta_1} + \hat{\beta}_3\bar{S} = `r round(coef(fit)[1], 2)` + `r round(coef(fit)[4])`(`r round(mean(S), 2)`) = `r round(coef(fit)[1] + coef(fit)[4]*mean(S), 2)`$.
+
+# Standard Error of the Average Marginal Treatment Effect
+
+## Standard Error of the Average Marginal Treatment Effect
+
+Estimation is fun and all, but without a method to calculate uncertainty about $\widehat{AME}$, we are up a creek.  Fortunately, we are not without many paddles to choose from\cite{dowd2014computation}.
+
+We could try to derive the sampling variance for $\widehat{AME}$ directly, but that might be painful in some cases\textsuperscript{5}.
+
+A computational approach might be to use Bootstrap Resampling \cite{efron1979bootstrap}, but depending on the end user's computer hardware, this can be slow. 
+
+A compromise between accuracy and computation is to use the Delta Method \cite{doob1935deltamethod}.  In short, the Delta Method uses the first two terms of the Taylor power series expansion of the marginal treatment effect evaluated at $\widehat{AME}$ to estimate its variance.
+
+\footnotetext[5]{The case in mind is if the expectation is non-linear in the predictors.}
+
+## Standard Error of the Average Marginal Treatment Effect
+
+The predicted values of $y_i$ are given by the function $f(x_i, \boldsymbol{\hat{\beta}}) = \hat{y}_i= \hat{\beta}_0 + \hat{\beta}_1c_i + \hat{\beta}_2s_i + \hat{\beta}_3c_is_i$, where $\boldsymbol{\hat{\beta}} = \begin{bmatrix} \hat{\beta}_1 & \hat{\beta}_2 & \hat{\beta}_3 &\hat{\beta}_4 \end{bmatrix}^T$.
+
+For fixed values of the $c_i$ and $s_i$ we know that $\boldsymbol{\hat{\beta}}$ corresponds to a consistent estimator of $\boldsymbol{\beta}$.  Therefore $\boldsymbol{\hat{\beta}}$ conveges in probability to $\boldsymbol{\beta}$, and by the central limit theorem, converges in distribution ($D$) to a $N(0, \Sigma)$, where $\Sigma$ is the variance-covariance matrix of $\boldsymbol{\beta}$.
+
+\begin{equation}
+\begin{split} \nonumber
+\sqrt{n}(\boldsymbol{\hat{\beta}} - \boldsymbol{\beta}) \xrightarrow[]{D} N(0, \Sigma)
+\end{split}
+\end{equation}
+
+## Standard Error of the Average Marginal Treatment Effect
+
+Let $\nabla$ be the vector-derivative operator and let $g$ be a scalar-valued function of $\boldsymbol{\hat{\beta}}$.  The Delta Method amounts to a generalization of the central limit theorem for any scalar-valued transformation of $\boldsymbol{\hat{\beta}}$.  The statement of result is given without proof below.
+
+\begin{equation}
+\begin{split} \nonumber
+\sqrt{n}(g(\boldsymbol{\hat{\beta}}) - g(\boldsymbol{\beta})) \xrightarrow[]{D} N(0, \nabla g(\boldsymbol{\beta})^T \cdot \Sigma \cdot \nabla g(\boldsymbol{\beta}))
+\end{split}
+\end{equation}
+
+To see how this applies to estimating the variance of $\widehat{AME}$ we need to make a couple of observations.
+
+## Standard Error of the Average Marginal Treatment Effect
+
+The first observation is that we took the first discrete difference with respect to $c_i$ to transform the $f(x_i, \boldsymbol{\hat{\beta}})$ to a consistent estimator of the predicted marginal treatment effects at the $i^{th}$ site.
+
+\begin{equation}
+\begin{split} \nonumber
+g(f(x_i, \boldsymbol{\hat{\beta}})) = \hat{\beta}_1 + \hat{\beta}_3s_i
+\end{split}
+\end{equation}
+
+## Standard Error of the Average Marginal Treatment Effect
+
+The second observation is that the predicted marginal treatment effects that are unconditional on site corresponds to the predicted marginal treatment effects evaluated at $\bar{s}$.
+
+\begin{equation}
+\begin{split} \nonumber
+g(f(x_{{AME}_i}, \boldsymbol{\hat{\beta}})) = \hat{\beta}_1 + \hat{\beta}_3\bar{s}
+\end{split}
+\end{equation}
+
+Therefore $g(f(x_{{AME}_i}, \boldsymbol{\hat{\beta}}))$ corresponds to a scalar-valued function of our estimators that transforms $f(x_i, \boldsymbol{\hat{\beta}})$ to the marginal treatment effects evaluated at $\bar{s}$.
+
+## Standard Error of the Average Marginal Treatment Effect
+
+Applying the Delta Method to $g$ and replacing the population parameters with their estimates, we can derive the approximate variance of $\widehat{AME}$.  First note that $\nabla g(f(x_{{AME}_i}, \boldsymbol{\hat{\beta}}))$ is the vector of partial derivatives with respect to the parameter vector.
+
+\begin{equation}
+\begin{split} \nonumber
+\Bigg(\frac{\partial g(f(x_{{AME}_i}, \boldsymbol{\hat{\beta}}))}{\partial f(x_{{AME}_i}, \boldsymbol{\hat{\beta}})}\Bigg)^T = \\
+\begin{bmatrix} \frac{\partial g(f(x_{{AME}_i}, \boldsymbol{\hat{\beta}}))}{\partial\hat{\beta}_0} & \frac{\partial g(f(x_{{AME}_i}, \boldsymbol{\hat{\beta}}))}{\partial\hat{\beta}_1} & \frac{\partial g(f(x_{{AME}_i}, \boldsymbol{\hat{\beta}}))}{\partial\hat{\beta}_2} & \frac{\partial g(f(x_{{AME}_i}, \boldsymbol{\hat{\beta}}))}{\partial\hat{\beta}_3}\end{bmatrix} = \\
+\begin{bmatrix} 0 & 1 & 0 & \bar{s}  \end{bmatrix}
+\end{split}
+\end{equation}
+
+<!-- ## Standard Error of the Average Marginal Treatment Effect -->
+
+<!-- Therefore we have the following result for the approximate variance of $\widehat{AME}$: -->
+
+<!-- \begin{equation} -->
+<!-- \begin{split} \nonumber -->
+<!-- Var(\widehat{AME}) \approx \begin{bmatrix} 0 & 1 & 0 & \bar{s}  \end{bmatrix} \cdot \Sigma \cdot \begin{bmatrix} 0 \\ 1 \\ 0 \\ \bar{s}  \end{bmatrix} -->
+<!-- \end{split} -->
+<!-- \end{equation} -->
+
+<!-- To get the respective standard error, we simply take the square root of the variance of $\widehat{AME}$. -->
+
+<!-- \begin{equation} -->
+<!-- \begin{split} \nonumber -->
+<!-- SE(\widehat{AME}) = \sqrt{Var(\widehat{AME})} -->
+<!-- \end{split} -->
+<!-- \end{equation} -->
+
+<!-- ## Standard Error of the Average Marginal Treatment Effect -->
+
+<!-- Recall that the conditional expectation of the $i^{th}$ observation is $E[y_i|c_i, s_i] = \beta_{0} + \beta_{1}c_i + \beta_{2}s_i + \beta_{3}c_is_i$.  This can be rewritten in matrix form as follows: -->
+
+<!-- \begin{equation} -->
+<!-- \begin{split} \nonumber -->
+<!-- E[y_i|c_i, s_i] =  -->
+<!-- \begin{bmatrix}  -->
+<!-- 1 & c_i & s_i & c_is_i -->
+<!-- \end{bmatrix} -->
+<!-- \begin{bmatrix}  -->
+<!-- \beta_0 \\ -->
+<!-- \beta_1 \\ -->
+<!-- \beta_2 \\ -->
+<!-- \beta_3 -->
+<!-- \end{bmatrix} -->
+<!-- = \mathbf{x_i}\boldsymbol{\beta} -->
+<!-- \end{split} -->
+<!-- \end{equation} -->
+
+<!-- ## Standard Error of the Average Marginal Treatment Effect -->
+
+<!-- Recall also that we calculated the marginal treatment effect of the $i^{th}$ observation at $E[y_{d_i}|s_i] = E[y_i|c_i = 1, s_i] - E[y_i|c_i = 0, s_i] = \beta_1 + \beta_{3}s_i$.  In matrix form this can be written as: -->
+
+<!-- \begin{equation} -->
+<!-- \begin{split} \nonumber -->
+<!-- E[y_{d_i}|s_i] =  -->
+<!-- \begin{bmatrix}  -->
+<!-- 1 & s_i -->
+<!-- \end{bmatrix} -->
+<!-- \begin{bmatrix}  -->
+<!-- \beta_1 \\ -->
+<!-- \beta_3 -->
+<!-- \end{bmatrix} -->
+<!-- = \\  -->
+<!-- \big(\begin{bmatrix}  -->
+<!-- 1 & 1 & s_i & s_i -->
+<!-- \end{bmatrix} -  -->
+<!-- \begin{bmatrix}  -->
+<!-- 1 & 0 & s_i & 0 -->
+<!-- \end{bmatrix}\big) \cdot -->
+<!-- \begin{bmatrix}  -->
+<!-- \beta_0 \\ -->
+<!-- \beta_1 \\ -->
+<!-- \beta_2 \\ -->
+<!-- \beta_3 -->
+<!-- \end{bmatrix} = -->
+<!-- \boldsymbol{x}_{d_i}\boldsymbol{\beta} -->
+<!-- \end{split} -->
+<!-- \end{equation} -->
+
+<!-- ## Standard Error of the Average Marginal Treatment Effect -->
+
+<!-- To proceed, we need to first note that the expectation of $y_i$ is a function of $\mathbf{x}_i$ and $\boldsymbol{\beta}$, call it $f(\mathbf{x}_i, \boldsymbol{\beta}) = \mathbf{x}_i\boldsymbol{\beta}$.  -->
+
+<!-- Second, the marginal treatment effects are a transformation of $f(\mathbf{x}_i, \boldsymbol{\beta})$, call it $g(f(\mathbf{x}_i, \boldsymbol{\beta})) = g(\mathbf{x}_i\boldsymbol{\beta})  = \mathbf{x}_{d_i}\boldsymbol{\beta}$. -->
+
+<!-- ## Standard Error of the Average Marginal Treatment Effect -->
+
+<!-- As a first step we want to evaluate the function that transforms the linear predictor to the marginal treatment effect at the value of the average marginal treatment effect.  As in the example given at the end of the last section, we could do this directly with $g(f(\mathbf{x}_{AME}, \boldsymbol{\beta})) = g(\mathbf{x}_{AME}\boldsymbol{\beta})  = \mathbf{x}_{d_{AME}}\boldsymbol{\beta}$, however for reasons that will become clear when we come to calculate the variance, we will instead use a first-order Taylor series expansion of $g(\mathbf{x_i}\boldsymbol{\beta})$ evaluated at $\mathbf{x}_{AME}$. -->
+
+<!-- \begin{equation} -->
+<!-- \begin{split} \nonumber -->
+<!-- g(\mathbf{x_i}\boldsymbol{\beta}) \approx g(\mathbf{x}_{AME}\boldsymbol{\beta}) + \Bigg(\frac{\partial g(\mathbf{x}_{AME}\boldsymbol{\beta})}{\partial \mathbf{x}_{AME}\boldsymbol{\beta}}\Bigg)^T \cdot (\mathbf{x}_i\boldsymbol{\beta} - \mathbf{x}_{d_{AME}}\boldsymbol{\beta}) -->
+<!-- \end{split} -->
+<!-- \end{equation} -->
+
+<!-- ## Standard Error of the Average Marginal Treatment Effect -->
+
+<!-- Let $\Sigma$ be the variance-covariance of $\boldsymbol{\beta}$.  With a little bit of math, we can derive that the approximate variance of the marginal treatment effect evaluated at the AME. -->
+
+<!-- \begin{equation} -->
+<!-- \begin{split} \nonumber -->
+<!-- Var(g(\mathbf{x}_i\boldsymbol{\beta})) \approx \Bigg(\frac{\partial g(\mathbf{x}_{AME}\boldsymbol{\beta})}{\partial \mathbf{x}_{AME}\boldsymbol{\beta}}\Bigg)^T \cdot \Sigma \cdot \Bigg(\frac{\partial g(\mathbf{x}_{AME}\boldsymbol{\beta})}{\partial \mathbf{x}_{AME}\boldsymbol{\beta}}\Bigg) -->
+<!-- \end{split} -->
+<!-- \end{equation} -->
+
+<!-- ## Standard Error of the Average Marginal Treatment Effect -->
+
+<!-- With the approximate variance of the population AME in hand, the hard part is over. -->
+
+<!-- Consider the sequence of predicted effects $g(x_1\hat{\beta}), g(x_2\hat{\beta}), \dots, g(x_n\hat{\beta})$ all evaluated at $x_{AME}$.  By the law of large numbers we know that the sample average of these effects converges in probability to the population effect which is $g(x_i\beta)$ evaluated at the AME.  Furthermore, by the central limit theorem, we know that the limiting distribution is normal with approximate population variance equal to $Var(g(x_i\beta))$ evaluated at the AME. -->
+
+<!-- Therefore we have the following result, which is referred to as the Delta Method. -->
+
+<!-- \begin{equation} -->
+<!-- \begin{split} \nonumber -->
+<!-- Var(g(x_i\hat{\beta})) \approx \Bigg(\frac{\partial g(\mathbf{x}_{AME}\boldsymbol{\beta})}{\partial \mathbf{x}_{AME}\boldsymbol{\beta}}\Bigg)^T \cdot \Sigma \cdot \Bigg(\frac{\partial g(\mathbf{x}_{AME}\boldsymbol{\beta})}{\partial \mathbf{x}_{AME}\boldsymbol{\beta}}\Bigg) -->
+<!-- \end{split} -->
+<!-- \end{equation} -->
+
+<!-- ## Standard Error of the Average Marginal Treatment Effect -->
+
+<!-- Replacing population parameters with their estimates, we have the standard error of the estimated marginal effects evaluated at the estimate of the average marginal effect. -->
+
+<!-- \begin{equation} -->
+<!-- \begin{split} \nonumber -->
+<!-- SE(g(x_i\hat{\beta})) = \sqrt{Var(g(x_i\hat{\beta}))} \approx \sqrt{\Bigg(\frac{\partial g(\mathbf{x}_{AME}\hat{\boldsymbol{\beta}})}{\partial \mathbf{x}_{AME}\hat{\boldsymbol{\beta}}}\Bigg)^T \cdot \hat{\Sigma} \cdot \Bigg(\frac{\partial g(\mathbf{x}_{AME}\hat{\boldsymbol{\beta})}}{\partial \mathbf{x}_{AME}\hat{\boldsymbol{\beta}}}\Bigg)} -->
+<!-- \end{split} -->
+<!-- \end{equation} -->
+
+<!-- Finally, the standard error of approximate variance of the marginal treatment effect evaluated at the AME is $SE(g(\mathbf{x}_i\hat{\boldsymbol{\beta}})) = \sqrt(Var(g(\mathbf{x}_i\hat{\boldsymbol{\beta}}))$. -->
+
+## Standard Error of the Average Marginal Effect -- Example
+
+As an example we will pick up where we left off before.  For our data generating process we had $\beta_{0} = 5$, $\beta_1 = 5$, $\beta_2 = 2$, $\beta_3 = 4$ and $\sigma_{\epsilon} = 1$. The probability of an observation being in the treatment condition be $1/2$, and the probability of an observation being in site 1 be $2/3$.
+
+To calculate the standard error of $\widehat{AME}$ we need to know the sample variance-covariance matrix ($\hat{\Sigma}$) and vector-gradient of the function that transforms the predicted values to their marginal treatment effects evaluated at $\widehat{AME}$ ($g(f(x_{{AME}_i}, \boldsymbol{\hat{\beta}}))$).
+
+## Standard Error of the Average Marginal Effect -- Example
+
+The sample variance-covariance matrix is easy enough.  Note that with our sample size of $500$, $\hat{\Sigma}$ is quickly converging to zero.
+
+```{r tmp, eval = TRUE, echo = TRUE, results = TRUE, warning = FALSE, message = FALSE}
+round(vcov(fit), 2)
+```
+
+## Standard Error of the Average Marginal Effect -- Example
+
+The vector-gradient of the function that transforms the predicted values to their marginal treatment effects evaluated at $\widehat{AME}$ is a little harder.  Fortunately in R, we don't have to know calculus to symbolically derive the gradient.
+
+## Standard Error of the Average Marginal Effect -- Example
+
+Let $S = \begin{bmatrix} s_1 & s_2 & \dots s_n  \end{bmatrix}^T$ then our expression for the marginal treatment effects is $\hat{\beta}_1 + \hat{\beta}_3S$.
+
+```{r normalExpr, eval = TRUE, echo = TRUE, results = TRUE, warning = FALSE, message = FALSE}
+meExpr <- parse(text = "beta_hat_1 + beta_hat_3*S")
+meExpr
+```
+
+## Standard Error of the Average Marginal Effect -- Example
+
+Using the \textit{deriv} function applied to \textit{meExpr}, we get the gradient matrix for the $i^{th}$ observation (also known as the Jacobian matrix).
+
+```{r normalGradient, eval = TRUE, echo = TRUE, results = TRUE, warning = FALSE, message = FALSE}
+meGrad <- deriv(meExpr, c("beta_hat_0", "beta_hat_1", 
+                          "beta_hat_2", "beta_hat_3"))
+meGrad
+```
+
+## Standard Error of the Average Marginal Effect -- Example
+
+Let $C = \begin{bmatrix} c_1 & c_2 & \dots c_n  \end{bmatrix}^T$.  The values we need to evaluate the gradient at are set below and then evaluated and stored in the object \textit{J\_me}.
+
+```{r normalJME, eval = TRUE, echo = TRUE, results = TRUE, warning = FALSE, message = FALSE}
+beta_hat_1 = coef(fit)["C"]
+beta_hat_3 = coef(fit)["C:S"]
+S = model.matrix(fit)[, "S"]
+
+J_me <- attr(eval(meGrad), "gradient")
+J_me[1:3, ]
+```
+
+## Standard Error of the Average Marginal Effect -- Example
+
+The column-wise mean of the Jacobian matrix gives us the vector-gradient for the marginal treatment effects evaluated at $\widehat{AME}$.
+
+```{r normalAMEJ, eval = TRUE, echo = TRUE, results = TRUE, warning = FALSE, message = FALSE}
+J_ame <- t(matrix(apply(J_me, 2, mean)))
+J_ame
+```
+
+## Standard Error of the Average Marginal Effect -- Example
+
+Putting it all together the standard error of $\widehat{AME}$ is as follows:
+
+```{r normalAMESE, eval = TRUE, echo = TRUE, results = TRUE, warning = FALSE, message = FALSE}
+ame_se <- sqrt(J_ame %*% vcov(fit) %*% t(J_ame))
+ame_se
+```
+
+# Statistical Inference
+
+## Statistical Inference
+
+The final piece of the puzzle is to apply inferential statistics to test the null hypothesis of no average marginal treatment effect and calculate confidence intervals.
+
+We can test the null hypothesis, $H_0: \widehat{AME} = 0$, by using a simple Z-test.
+
+$$
+Z_{obs} = \frac{\widehat{AME} - \widehat{AME}_{H_0}}{SE(\widehat{AME})} = \frac{\widehat{AME}}{SE(\widehat{AME})}
+$$
+
+Under a true null $Z \sim N(0, 1)$.  Therefore under the assumption that the null hypothesis of no average marginal treatment effect is true, the P-value is two times the upper tail probability of observing $Z_{obs}$ or greater.  The $95\%$ confidence interval for $\widehat{AME}$ is then:
+
+$$
+\widehat{AME} \pm Z_{.975}SE(\widehat{AME}) = \widehat{AME} \pm 1.96SE(\widehat{AME})
+$$
+
+## Statistical Inference -- Example
+
+To show statistical inference in application we continue where we left off.  
+
+The p-value is calculated below and shows that we can reject the null hypothesis of no average marginal treatment effect with gusto!
+
+```{r normalAMEpval, eval = TRUE, echo = TRUE, results = TRUE, warning = FALSE, message = FALSE}
+z <- (coef(fit)[1] + coef(fit)[4]*mean(d$S))/ame_se
+p <- 2*pnorm(abs(z), lower.tail = FALSE)
+p
+```
+
+## Statistical Inference -- Example
+
+The lower and upper $95\%$ confidence limits are calculated below.  The results show that there is good evidence that the population AME lies between the bounds `r round((coef(fit)[1] + coef(fit)[4]*mean(d$S)) - 1.96*ame_se, 2)` and `r round((coef(fit)[1] + coef(fit)[4]*mean(d$S)) + 1.96*ame_se, 2)`\textsuperscript{6}.
+
+```{r normalAMEci, eval = TRUE, echo = TRUE, results = TRUE, warning = FALSE, message = FALSE}
+ci_lb <- (coef(fit)[1] + coef(fit)[4]*mean(d$S)) - 
+  1.96*ame_se
+ci_ub <- (coef(fit)[1] + coef(fit)[4]*mean(d$S)) + 
+  1.96*ame_se
+
+paste("[", round(ci_lb, 2), ", ", round(ci_ub, 2), "]", 
+      sep = "")
+```
+
+\footnotetext[6]{Specifically, if we repeat the experiment many times, calculating the confidence interval each time, we would expect them to contain the population AME $95\%$ of the time.}
+
+# Questions
+
+## References
+
+\begin{footnotesize}
+\begin{thebibliography}{99}
+
+\bibitem[Bain \& Engelhardt, 2000]{bain2000introduction} Bain, Lee J and Engelhardt, Max, 2000
+\newblock Introduction to probability and mathematical statistics
+\newblock \emph{Brooks/Cole}.
+
+\bibitem[Doob, 1935]{doob1935deltamethod} Doob, J. L., 1935
+\newblock The Limiting Distributions of Certain Statistics
+\newblock \emph{Annals of Mathematical Statistics}, 6, 160–-169.
+
+\bibitem[Dowd, Greene, \& Norton, 2014]{dowd2014computation} Dowd, Bryan E and Greene, William H and Norton, Edward C, 2014
+\newblock Computation of standard errors
+\newblock \emph{Health services research}, 49(2), 731-750.
+
+\bibitem[Efron, 1979]{efron1979bootstrap} Efron, Bradley, 1979
+\newblock Bootstrap methods: another look at the jackknife
+\newblock \emph{Annals of Statistics}, 7, 1--26.
+
+\end{thebibliography}
+\end{footnotesize}
+
+## References
+
+\begin{footnotesize}
+\begin{thebibliography}{99}
+
+\bibitem[Greene, 2003]{greene2003econometric} Greene, William H, 2003
+\newblock Econometric analysis
+\newblock \emph{Pearson Education India}.
+
+\bibitem[Hern{\'a}n, 2004]{hernan2004definition} Hern{\'a}n, Miguel Angel, 2004
+\newblock A definition of causal effect for epidemiological research
+\newblock \emph{Journal of Epidemiology \& Community Health} 58(4), 265-271.
+
+\bibitem[Hern{\'a}n \& Robins, 2006]{hernan2006estimating} Hern{\'a}n, Miguel A and Robins, James M, 2006
+\newblock Estimating causal effects from epidemiological data
+\newblock \emph{Journal of Epidemiology \& Community Health} 60(7), 578--586.
+
+\bibitem[Kraemer, 2000]{kraemer2000pitfalls} Kraemer, Helena Chmura, 2000
+\newblock Pitfalls of multisite randomized clinical trials of efficacy and effectiveness
+\newblock \emph{Schizophrenia Bulletin} 26(3), 533--541.
+
+\end{thebibliography}
+\end{footnotesize}
+
+## References
+
+\begin{footnotesize}
+\begin{thebibliography}{99}
+
+\bibitem[Parab \& Bhalerao, 2010]{parab2010study} Parab, Shraddha and Bhalerao, Supriya, 2010
+\newblock Study designs
+\newblock \emph{International journal of Ayurveda research} 1(2), 128.
+
+\bibitem[R Core Team 2019]{rprogramming2019} R Core Team, 2019
+\newblock R: A language and environment for statistical computing
+\newblock \emph{R Foundation for Statistical Computing, Vienna,
+  Austria}.
+\newblock \emph{URL https://www.R-project.org/}.
+
+\bibitem[StataCorp. 2019]{stata2019manual} StataCorp, 2019
+\newblock Stata 16 Base Reference Manual
+\newblock \emph{College Station, TX: Stata Press}.
+
+\bibitem[Williams, 2012]{williams2012using} Williams, Richard, 2012
+\newblock Using the margins command to estimate and interpret adjusted predictions and marginal effects
+\newblock \emph{The Stata Journal} 12(2), 308--331.
+
+\bibitem[Wooldridge, 2000]{wooldridge2000econometric} Wooldridge, Jeffrey M, 2000
+\newblock Econometric analysis of cross section and panel data
+\newblock \emph{MIT press}.
+
+\end{thebibliography}
+\end{footnotesize}
